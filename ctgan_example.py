@@ -1,7 +1,15 @@
 import torch
 import torch.nn as nn
-
 import seaborn as sns
+import pandas as pd
+import numpy as np
+import os
+import random
+
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import train_test_split
+from sklearn.utils import resample
 
 class WassersteinMetric(nn.Module):
     
@@ -79,22 +87,73 @@ class Discriminator(nn.Module):
         l2_out = self.l2(relu_out) 
         l2_out = torch.sigmoid(l2_out)
         return l2_out 
+
+class DataPrep():
+    def __init__(self, datafile, categorical_columns, value_filter=["."]):
+        self.categorical_columns = categorical_columns
+        self.df = pd.read_csv(datafile)
+        self.df.dropna(inplace=True)
+
+        for filter_val in value_filter:
+            for col in self.categorical_columns:
+                values= self.df[self.df[col] == filter_val].index
+                self.df.drop(values, inplace=True)
+
+        self.df_count = self.df.groupby(self.categorical_columns).count().reset_index()
+
+        num_combs = self.df_count.iloc[:,len(self.categorical_columns)+1].sum()
+        self.df_count["probability"] = [x/num_combs for x in self.df_count.iloc[:,len(self.categorical_columns)+1]]
+        
+        self.__init_preprocessing_models()
+
+    def __init_preprocessing_models(self):
+        self.encoder_noise  = OneHotEncoder()
+        self.collumn_trans  = ColumnTransformer(transformers=[("cat", OneHotEncoder(), self.categorical_columns)],remainder=StandardScaler())
+        
+        self.encoded_noisecondition_tensor = self.encoder_noise.fit_transform(self.df_count[self.categorical_columns]).toarray() 
+        print(self.encoded_noisecondition_tensor)
     
+    def generate_training_test_data(self, boootstrap_multiplier=10, test_size=0.33, random_state=42):
+        transformed = self.collumn_trans.fit_transform(self.df)
+        print(transformed)
+
+        X = resample(transformed,replace=True,n_samples=boootstrap_multiplier,random_state=random_state) 
+        X_train, X_test = train_test_split(X, test_size=test_size, random_state=random_state)
+        return X_train, X_test
+    
+
+    def gen_noise_tensor(self, noise_dim, batch_size):
+        cat = np.vstack(random.choices(self.encoded_noisecondition_tensor , weights=self.df_count["probability"], k=batch_size))#[0]
+        num = torch.rand(batch_size, noise_dim)
+        noise_tensor = torch.cat(tensors=(num,torch.from_numpy(cat)), dim=1)
+        print(noise_tensor)
+        
+
 class CTGanTraining():
-    def __init__(self, test_size=0.33,learning_rate = 0.01, random_state =42, batch_size=265):
+    def __init__(self, dataset, test_size=0.33,learning_rate = 0.01, random_state =42, batch_size=265, bootstrap_multiplier=10, noise_dim=128):
+        self.dataset = dataset
         self.tes_size = test_size
         self.learning_rate = learning_rate
         self.random_state = random_state
         self.batch_size = batch_size
+        self.bootstrap_multiplier = bootstrap_multiplier
+        self.noise_dim = noise_dim  
         
+
     def run_training(self):
         pass
 
 
 if __name__ == "__main__":
-    df = sns.load_dataset("penguins")
-    print(df.head())
-    df.drop(labels=['island','sex'], axis=1, inplace=True)
-    df.dropna(inplace=True)
-    print(df.head())
-    print(df.info())
+    csvfile = os.path.join(os.getcwd(), "penguins_size.csv")
+    data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
+    data_prep.gen_noise_tensor(noise_dim=128, batch_size=20)
+    xtrain, xtest = data_prep.generate_training_test_data()
+    print(xtest)
+    #df = sns.load_dataset("penguins")
+    #print(df.head())
+    #df.drop(labels=['island','sex'], axis=1, inplace=True)
+    #df.dropna(inplace=True)
+    #print(df.head())
+    #print(df.info())
+    pass

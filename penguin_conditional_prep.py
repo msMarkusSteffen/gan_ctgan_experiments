@@ -1,3 +1,5 @@
+# NOTE this file is only to prepare the conditional inputs for the conditional GAN example
+
 import pandas as pd
 import os 
 import numpy as np
@@ -6,7 +8,7 @@ import torch
 import random
 
 print(os.getcwd())
-csvfile = os.path.join(os.getcwd(), "Tests","penguins_size.csv")
+csvfile = os.path.join(os.getcwd(), "penguins_size.csv")
 df = pd.read_csv(csvfile)
 df.dropna(inplace=True)
 
@@ -20,11 +22,10 @@ print("Stats")
 print(df.describe())
 
 df_count = df.groupby(["species","island","sex"]).count().reset_index()
-df_count.drop
 
 dotval =  df_count[df_count['sex'] == "."].index
 df_count.drop(dotval, inplace=True)
-num_combs = df_count["body_mass_g"].sum()
+num_combs = df_count["body_mass_g"].sum() #NOTE this is wrong, because it does not count the number of samples per group, but the sum of body mass
 
 df_count["probability"] = df_count["body_mass_g"]/num_combs
 print("Groupby")
