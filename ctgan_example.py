@@ -94,7 +94,7 @@ class DataPrep():
         self.categorical_columns = categorical_columns
         self.df = pd.read_csv(datafile)
         self.df.dropna(inplace=True)
-
+        
         for filter_val in value_filter:
             for col in self.categorical_columns:
                 values= self.df[self.df[col] == filter_val].index
@@ -119,6 +119,8 @@ class DataPrep():
         print(transformed)
 
         X = resample(transformed,replace=True,n_samples=boootstrap_multiplier,random_state=random_state) 
+
+        self.total_features = X.shape[1] # Alle Spalten nach der Transformation
         X_train, X_test = train_test_split(X, test_size=test_size, random_state=random_state)
         return X_train, X_test
     
@@ -129,12 +131,16 @@ class DataPrep():
         noise_tensor = torch.cat(tensors=(num,torch.from_numpy(cat)), dim=1)
         print(noise_tensor)
         
+    def rate_model(self, real_data, generated_data):
+        wass_metric = WassersteinMetric()
+        distance = wass_metric.forwad(real_data, generated_data)
+        return distance
 
 class CTGanTraining():
     def __init__(self, dataset, categorical_collumns, 
                  test_size=0.33,learning_rate = 0.01, 
                  random_state =42, batch_size=265, 
-                 bootstrap_multiplier=10, noise_dim=128):
+                 bootstrap_multiplier=10, noise_dim=128, epochs=1000):
         
         self.dataset = dataset
         self.categorical_collumns = categorical_collumns
@@ -144,21 +150,30 @@ class CTGanTraining():
         self.batch_size = batch_size
         self.bootstrap_multiplier = bootstrap_multiplier
         self.noise_dim = noise_dim  
+        self.epochs = epochs
         self.X_train = None
-        self.x_test = None      
+        self.x_test = None     
+        self.num_features = None 
 
     def __run_dataprep(self):
         self.dataprep = DataPrep(datafile=self.dataset, categorical_columns=self.categorical_collumns)
+        self.num_features = self.dataprep.total_features
         self.X_train, self.x_test = self.dataprep.generate_training_test_data()
     
     def _init_models(self):
-        self.generator = Generator(self.noise_dim,64, iris_features)
-        self.discriminator=Discriminator(iris_features,64)
+        self.generator = Generator(self.noise_dim,64, self.num_features)
+        self.discriminator=Discriminator(self.num_features,64)
 
         #criterion = nn.BCEWithLogitsLoss() # NOTE passt sonst nicht mit Sgimoid beim output layer 
         self.criterion = nn.BCELoss() 
         self.generator_optimizer = optim.Adam(self.generator.parameters(), lr=self.learning_rate, betas=(0.5, 0.999)) 
         self.discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=self.learning_rate, betas=(0.5, 0.999))
+
+    def _show_progress(self, epoch, real_loss, fake_loss, gen_loss):
+        if epoch % 10 == 0:
+            print(f'Epoch [{epoch+1}/{self.epochs}], ', 
+                    f'Discriminator Loss: {real_loss.item() + fake_loss.item():.3f}, '
+                    f'Generator Loss: {gen_loss.item():.3f}')
 
     def run_training(self):
         try: 
@@ -169,20 +184,73 @@ class CTGanTraining():
         self._init_models()
 
         if self.X_train!= None:
-            pass
+            for epoch in range(self.epochs):
+                for i in range(0, len(self.X_train), self.batch_size):
+                    real_data = torch.FloatTensor(self.X_train[i:i+self.batch_size])
+                    
+                    # Train Discriminator
+                    self.discriminator_optimizer.zero_grad()
 
+                    # Real data
+                    real_labels = torch.ones(real_data.size(0), 1)
+                    real_outputs = self.discriminator(real_data)
+                    real_loss = self.criterion(real_outputs, real_labels)
 
+                    # Fake data
+                    noise = torch.rand(real_data.size(0), self.noise_dim)
+                    fake_data = self.generator(noise)
+                    fake_labels = torch.zeros(real_data.size(0), 1)
+                    fake_outputs = self.discriminator(fake_data.detach())
+                    fake_loss = self.criterion(fake_outputs, fake_labels)
+
+                    # Backprop and optimize
+                    d_loss = real_loss + fake_loss
+                    d_loss.backward()
+                    self.discriminator_optimizer.step()
+
+                    # Train Generator
+                    self.generator_optimizer.zero_grad()
+                    gen_labels = torch.ones(real_data.size(0), 1)  # We want the generator to fool the discriminator
+                    gen_outputs = self.discriminator(fake_data)
+                    gen_loss = self.criterion(gen_outputs, gen_labels)
+
+                    # Backprop and optimize
+                    gen_loss.backward()
+                    self.generator_optimizer.step()
+                self._show_progress(epoch, real_loss, fake_loss, gen_loss)
+        else:
+            print("No training data available. Please run data preparation first.")
 
 if __name__ == "__main__":
     csvfile = os.path.join(os.getcwd(), "penguins_size.csv")
    # data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
     #data_prep.gen_noise_tensor(noise_dim=128, batch_size=20)
     ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"])
-    #xtrain, xtest = data_prep.generate_training_test_data()
-    #df = sns.load_dataset("penguins")
-    #print(df.head())
-    #df.drop(labels=['island','sex'], axis=1, inplace=True)
-    #df.dropna(inplace=True)
-    #print(df.head())
-    #print(df.info())
-    pass
+    ctgan.run_training()
+    # TODO Dimensionen für Noise Tensor nochmal kontrollieren
+    # TODO Trainingsablauf noch einmal mit gan_flowers.ipynb vergleichen
+    # TODO Zusammensetzungen der Fake Daten überprüfen
+    # TODO Labels Smoothing implementieren real_labels = torch.ones(self.batch_size, 1) * 0.9
+    # sonst mode collapse
+    # TODO eventuell Wasserstein Metrik zur Bewertung des Modells implementieren
+    # TODO CSV Export der generierten Daten implementieren
+    # TODO Export Generator Model nach dem Training
+    """
+     def generate(self, n_samples):
+        with torch.no_grad():
+            # Rauschen und Bedingungen generieren
+            noise = self.dataprep.gen_noise_tensor(noise_dim=128, batch_size=n_samples)
+            
+            # Synthetische Daten erzeugen (Werte zwischen -1 und 1)
+            fake_data_raw = self.generator(noise).numpy()
+            
+            # Rücktransformation in echte Werte
+            # (Nutzt den ColumnTransformer aus deinem DataPrep)
+            final_data = self.dataprep.collumn_trans.named_transformers_['remainder'].inverse_transform(
+                fake_data_raw[:, len(self.dataprep.categorical_columns):] # Beispielhaft für die Scaler-Spalten
+            )
+            
+            # Hier müsstest du noch die One-Hot-Spalten zurückrechnen
+            return pd.DataFrame(fake_data_raw) # Vereinfachter Export
+    """
+  
