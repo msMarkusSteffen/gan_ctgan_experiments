@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import seaborn as sns
 import pandas as pd
 import numpy as np
@@ -130,26 +131,54 @@ class DataPrep():
         
 
 class CTGanTraining():
-    def __init__(self, dataset, test_size=0.33,learning_rate = 0.01, random_state =42, batch_size=265, bootstrap_multiplier=10, noise_dim=128):
+    def __init__(self, dataset, categorical_collumns, 
+                 test_size=0.33,learning_rate = 0.01, 
+                 random_state =42, batch_size=265, 
+                 bootstrap_multiplier=10, noise_dim=128):
+        
         self.dataset = dataset
+        self.categorical_collumns = categorical_collumns
         self.tes_size = test_size
         self.learning_rate = learning_rate
         self.random_state = random_state
         self.batch_size = batch_size
         self.bootstrap_multiplier = bootstrap_multiplier
         self.noise_dim = noise_dim  
-        
+        self.X_train = None
+        self.x_test = None      
+
+    def __run_dataprep(self):
+        self.dataprep = DataPrep(datafile=self.dataset, categorical_columns=self.categorical_collumns)
+        self.X_train, self.x_test = self.dataprep.generate_training_test_data()
+    
+    def _init_models(self):
+        self.generator = Generator(self.noise_dim,64, iris_features)
+        self.discriminator=Discriminator(iris_features,64)
+
+        #criterion = nn.BCEWithLogitsLoss() # NOTE passt sonst nicht mit Sgimoid beim output layer 
+        self.criterion = nn.BCELoss() 
+        self.generator_optimizer = optim.Adam(self.generator.parameters(), lr=self.learning_rate, betas=(0.5, 0.999)) 
+        self.discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=self.learning_rate, betas=(0.5, 0.999))
 
     def run_training(self):
-        pass
+        try: 
+            self.dataprep()
+        except:
+            pass
+        
+        self._init_models()
+
+        if self.X_train!= None:
+            pass
+
 
 
 if __name__ == "__main__":
     csvfile = os.path.join(os.getcwd(), "penguins_size.csv")
-    data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
-    data_prep.gen_noise_tensor(noise_dim=128, batch_size=20)
-    xtrain, xtest = data_prep.generate_training_test_data()
-    print(xtest)
+   # data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
+    #data_prep.gen_noise_tensor(noise_dim=128, batch_size=20)
+    ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"])
+    #xtrain, xtest = data_prep.generate_training_test_data()
     #df = sns.load_dataset("penguins")
     #print(df.head())
     #df.drop(labels=['island','sex'], axis=1, inplace=True)
