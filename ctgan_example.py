@@ -257,4 +257,4 @@ if __name__ == "__main__":
             # Hier müsstest du noch die One-Hot-Spalten zurückrechnen
             return pd.DataFrame(fake_data_raw) # Vereinfachter Export
     """
-  
+    # Test 12
