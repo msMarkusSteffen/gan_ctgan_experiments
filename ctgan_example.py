@@ -197,8 +197,9 @@ class CTGanTraining():
                     real_loss = self.criterion(real_outputs, real_labels)
 
                     # Fake data
-                    noise = torch.rand(real_data.size(0), self.noise_dim)
-                    fake_data = self.generator(noise)
+                    noise_tensor = self.dataprep.gen_noise_tensor(noise_dim=self.noise_dim, batch_size=real_data.size(0))
+
+                    fake_data = self.generator(noise_tensor)
                     fake_labels = torch.zeros(real_data.size(0), 1)
                     fake_outputs = self.discriminator(fake_data.detach())
                     fake_loss = self.criterion(fake_outputs, fake_labels)
@@ -228,6 +229,9 @@ if __name__ == "__main__":
     ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"])
     ctgan.run_training()
     # TODO Dimensionen für Noise Tensor nochmal kontrollieren
+    # TODO die ganze Zusammensetzung für die Fake Daten funktionieren noch nicht
+    # Es muss noch die Zusammensetzung der ursprünglichen OneHot Anteile mit den vom Generator
+    # generierten Skalierten Werten kombiniert werden 
     # TODO Trainingsablauf noch einmal mit gan_flowers.ipynb vergleichen
     # TODO Zusammensetzungen der Fake Daten überprüfen
     # TODO Labels Smoothing implementieren real_labels = torch.ones(self.batch_size, 1) * 0.9
