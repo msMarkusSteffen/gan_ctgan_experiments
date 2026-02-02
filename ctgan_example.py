@@ -8,7 +8,7 @@ import os
 import random
 import matplotlib.pyplot as plt 
 
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
@@ -67,7 +67,9 @@ class Generator(nn.Module):
         self.l1 = nn.Linear(in_features=noise_dim, out_features=hidden_dim) 
         self.l2 = nn.Linear(in_features=hidden_dim, out_features=2*hidden_dim) 
         self.l3 = nn.Linear(in_features=2*hidden_dim, out_features=output_size) 
+        #self.relu = nn.LeakyReLU() 
         self.relu = nn.ReLU() 
+        self.sigmoid = nn.Sigmoid()
         
 
     def forward(self, x): 
@@ -76,7 +78,7 @@ class Generator(nn.Module):
         l2_out = self.l2(relu_out) 
         relu2_out = self.relu(l2_out)
         l3_out = self.l3(relu2_out) 
-        return torch.tanh(l3_out) # NOTE Features wurden über standard Scaler normalisiert [-1,1] <-- tanh sorgt dafür das der Output auch zwischen -1 und 1 ist
+        return nn.Sigmoid()(l3_out) # NOTE Features wurden über MinMax Scaler normalisiert [0,1] <-- Sigmoid sorgt dafür das der Output auch zwischen 0 und 1 ist
     
     def generate_samples(self, n):
         pass
@@ -120,7 +122,7 @@ class DataPrep():
 
     def __init_preprocessing_models(self):
         self.encoder_noise  = OneHotEncoder()
-        self.collumn_trans  = ColumnTransformer(transformers=[("cat", OneHotEncoder(), self.categorical_columns)],remainder=StandardScaler())
+        self.collumn_trans  = ColumnTransformer(transformers=[("cat", OneHotEncoder(), self.categorical_columns)],remainder=MinMaxScaler())
         self.encoded_noisecondition_tensor = self.encoder_noise.fit_transform(self.df_count[self.categorical_columns]).toarray() 
         self.full_noise_dim = self.noise_dim + self.encoded_noisecondition_tensor.shape[1]
 
@@ -128,7 +130,7 @@ class DataPrep():
         transformed = self.collumn_trans.fit_transform(self.df)
         #print("Transformed_Train", transformed)
 
-        X = resample(transformed,replace=True,n_samples=boootstrap_multiplier,random_state=random_state) 
+        X = resample(transformed,replace=True,n_samples=boootstrap_multiplier*len(self.df),random_state=random_state) 
 
         self.total_features = X.shape[1] # Alle Spalten nach der Transformation
         X_train, X_test = train_test_split(X, test_size=test_size, random_state=random_state)
@@ -174,12 +176,12 @@ class CTGanTraining():
         self.dataprep = DataPrep(datafile=self.dataset, categorical_columns=self.categorical_collumns, noise_dim=self.numeric_noise_dim)
         self.dataprep.generate_training_test_data
         self.noise_dim = self.dataprep.full_noise_dim
-        self.X_train, self.x_test = self.dataprep.generate_training_test_data()
+        self.X_train, self.x_test = self.dataprep.generate_training_test_data(boootstrap_multiplier=self.bootstrap_multiplier, test_size=self.tes_size, random_state=self.random_state)
         self.num_features = self.dataprep.total_features
         self.num_gen_features = self.dataprep.generator_features
     
     def _init_models(self):
-        self.generator = Generator(self.dataprep.full_noise_dim,64, self.num_gen_features)
+        self.generator = Generator(self.dataprep.full_noise_dim,256, self.num_gen_features)
         self.discriminator=Discriminator(self.num_features,64)
 
         #criterion = nn.BCEWithLogitsLoss() # NOTE passt sonst nicht mit Sgimoid beim output layer 
@@ -194,7 +196,7 @@ class CTGanTraining():
                     f'Generator Loss: {gen_loss.item():.3f}')
 
     def show_learning_competition(self):
-        t =  np.arange(start=0, stop=self.epochs,step=1)
+        t =  t = np.arange(len(self.train_gen_score))
         plt.plot(t, self.train_gen_score, label='Generator Loss')
         plt.plot(t, self.train_disc_score, label='Discriminator Loss')
         plt.xlabel('Epochs')
@@ -220,7 +222,8 @@ class CTGanTraining():
                     self.discriminator_optimizer.zero_grad()
 
                     # Real data
-                    real_labels = torch.ones(real_data.size(0), 1)
+                    #real_labels = torch.ones(real_data.size(0), 1)
+                    real_labels = torch.ones(real_data.size(0), 1) * 0.9 # Statt 1.0 Labels Smoothing um Mode Collapse zu vermeiden
                     real_outputs = self.discriminator(real_data)
                     real_loss = self.criterion(real_outputs, real_labels)
 
@@ -267,17 +270,12 @@ if __name__ == "__main__":
     #data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
     #data_prep.generate_training_test_data()
     #print(data_prep.gen_noise_tensor(noise_dim=128, batch_size=5))
-    ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"],epochs=10000)
+    ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"],epochs=5000)
     ctgan.run_training()
     ctgan.show_learning_competition()
-    # TODO Dimensionen für Noise Tensor nochmal kontrollieren
-    # TODO die ganze Zusammensetzung für die Fake Daten funktionieren noch nicht
-    # Es muss noch die Zusammensetzung der ursprünglichen OneHot Anteile mit den vom Generator
-    # generierten Skalierten Werten kombiniert werden 
+ 
     # TODO Trainingsablauf noch einmal mit gan_flowers.ipynb vergleichen
     # TODO Zusammensetzungen der Fake Daten überprüfen
-    # TODO Labels Smoothing implementieren real_labels = torch.ones(self.batch_size, 1) * 0.9
-    # sonst mode collapse
     # TODO eventuell Wasserstein Metrik zur Bewertung des Modells implementieren
     # TODO CSV Export der generierten Daten implementieren
     # TODO Export Generator Model nach dem Training
