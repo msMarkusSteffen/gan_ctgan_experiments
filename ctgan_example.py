@@ -6,11 +6,13 @@ import pandas as pd
 import numpy as np
 import os
 import random
+import matplotlib.pyplot as plt 
 
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
+
 
 class WassersteinMetric(nn.Module):
     
@@ -63,14 +65,18 @@ class Generator(nn.Module):
     def __init__(self, noise_dim, hidden_dim, output_size):
         super(Generator, self).__init__()
         self.l1 = nn.Linear(in_features=noise_dim, out_features=hidden_dim) 
+        self.l2 = nn.Linear(in_features=hidden_dim, out_features=2*hidden_dim) 
+        self.l3 = nn.Linear(in_features=2*hidden_dim, out_features=output_size) 
         self.relu = nn.ReLU() 
-        self.l2 = nn.Linear(in_features=hidden_dim, out_features=output_size) 
+        
 
     def forward(self, x): 
         l1_out = self.l1(x) 
         relu_out = self.relu(l1_out) 
         l2_out = self.l2(relu_out) 
-        return torch.tanh(l2_out) # NOTE Features wurden über standard Scaler normalisiert [-1,1] <-- tanh sorgt dafür das der Output auch zwischen -1 und 1 ist
+        relu2_out = self.relu(l2_out)
+        l3_out = self.l3(relu2_out) 
+        return torch.tanh(l3_out) # NOTE Features wurden über standard Scaler normalisiert [-1,1] <-- tanh sorgt dafür das der Output auch zwischen -1 und 1 ist
     
     def generate_samples(self, n):
         pass
@@ -161,6 +167,9 @@ class CTGanTraining():
         self.num_features = None 
         self.num_gen_features = None
 
+        self.train_gen_score = []
+        self.train_disc_score = []
+
     def __run_dataprep(self):
         self.dataprep = DataPrep(datafile=self.dataset, categorical_columns=self.categorical_collumns, noise_dim=self.numeric_noise_dim)
         self.dataprep.generate_training_test_data
@@ -176,13 +185,24 @@ class CTGanTraining():
         #criterion = nn.BCEWithLogitsLoss() # NOTE passt sonst nicht mit Sgimoid beim output layer 
         self.criterion = nn.BCELoss() 
         self.generator_optimizer = optim.Adam(self.generator.parameters(), lr=self.learning_rate, betas=(0.5, 0.999)) 
-        self.discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=self.learning_rate, betas=(0.5, 0.999))
+        self.discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.001*self.learning_rate, betas=(0.5, 0.999))
 
     def _show_progress(self, epoch, real_loss, fake_loss, gen_loss):
         if epoch % 10 == 0:
             print(f'Epoch [{epoch+1}/{self.epochs}], ', 
                     f'Discriminator Loss: {real_loss.item() + fake_loss.item():.3f}, '
                     f'Generator Loss: {gen_loss.item():.3f}')
+
+    def show_learning_competition(self):
+        t =  np.arange(start=0, stop=self.epochs,step=1)
+        plt.plot(t, self.train_gen_score, label='Generator Loss')
+        plt.plot(t, self.train_disc_score, label='Discriminator Loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.title('Generator vs Discriminator Loss over Epochs')
+        plt.legend()
+        plt.show()
+
 
     def run_training(self):
         self.__run_dataprep()
@@ -234,6 +254,10 @@ class CTGanTraining():
                     # Backprop and optimize
                     gen_loss.backward()
                     self.generator_optimizer.step()
+
+                    self.train_gen_score.append(gen_loss.item())
+                    self.train_disc_score.append(d_loss.item()) 
+                    
                 self._show_progress(epoch, real_loss, fake_loss, gen_loss)
         else:
             print("No training data available. Please run data preparation first.")
@@ -243,8 +267,9 @@ if __name__ == "__main__":
     #data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
     #data_prep.generate_training_test_data()
     #print(data_prep.gen_noise_tensor(noise_dim=128, batch_size=5))
-    ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"])
+    ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"],epochs=10000)
     ctgan.run_training()
+    ctgan.show_learning_competition()
     # TODO Dimensionen für Noise Tensor nochmal kontrollieren
     # TODO die ganze Zusammensetzung für die Fake Daten funktionieren noch nicht
     # Es muss noch die Zusammensetzung der ursprünglichen OneHot Anteile mit den vom Generator
