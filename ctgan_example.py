@@ -90,10 +90,15 @@ class Discriminator(nn.Module):
         return l2_out 
 
 class DataPrep():
-    def __init__(self, datafile, categorical_columns, value_filter=["."]):
+    def __init__(self, datafile, categorical_columns, noise_dim, value_filter=["."], ):
         self.categorical_columns = categorical_columns
         self.df = pd.read_csv(datafile)
         self.df.dropna(inplace=True)
+
+        self.noise_dim = noise_dim
+        self.full_noise_dim = None
+
+        self.generator_features = len(self.df.columns)-len(self.categorical_columns)
         
         for filter_val in value_filter:
             for col in self.categorical_columns:
@@ -110,13 +115,12 @@ class DataPrep():
     def __init_preprocessing_models(self):
         self.encoder_noise  = OneHotEncoder()
         self.collumn_trans  = ColumnTransformer(transformers=[("cat", OneHotEncoder(), self.categorical_columns)],remainder=StandardScaler())
-        
         self.encoded_noisecondition_tensor = self.encoder_noise.fit_transform(self.df_count[self.categorical_columns]).toarray() 
-        print(self.encoded_noisecondition_tensor)
-    
+        self.full_noise_dim = self.noise_dim + self.encoded_noisecondition_tensor.shape[1]
+
     def generate_training_test_data(self, boootstrap_multiplier=10, test_size=0.33, random_state=42):
         transformed = self.collumn_trans.fit_transform(self.df)
-        print(transformed)
+        #print("Transformed_Train", transformed)
 
         X = resample(transformed,replace=True,n_samples=boootstrap_multiplier,random_state=random_state) 
 
@@ -125,11 +129,11 @@ class DataPrep():
         return X_train, X_test
     
 
-    def gen_noise_tensor(self, noise_dim, batch_size):
+    def gen_noise_tensor(self, batch_size):
         cat = np.vstack(random.choices(self.encoded_noisecondition_tensor , weights=self.df_count["probability"], k=batch_size))#[0]
-        num = torch.rand(batch_size, noise_dim)
+        num = torch.rand(batch_size, self.noise_dim)
         noise_tensor = torch.cat(tensors=(num,torch.from_numpy(cat)), dim=1)
-        print(noise_tensor)
+        return noise_tensor, cat
         
     def rate_model(self, real_data, generated_data):
         wass_metric = WassersteinMetric()
@@ -140,7 +144,7 @@ class CTGanTraining():
     def __init__(self, dataset, categorical_collumns, 
                  test_size=0.33,learning_rate = 0.01, 
                  random_state =42, batch_size=265, 
-                 bootstrap_multiplier=10, noise_dim=128, epochs=1000):
+                 bootstrap_multiplier=10, numeric_noise_dim=128, epochs=1000):
         
         self.dataset = dataset
         self.categorical_collumns = categorical_collumns
@@ -149,19 +153,24 @@ class CTGanTraining():
         self.random_state = random_state
         self.batch_size = batch_size
         self.bootstrap_multiplier = bootstrap_multiplier
-        self.noise_dim = noise_dim  
+        self.numeric_noise_dim = numeric_noise_dim  
         self.epochs = epochs
+        self.noise_dim = None
         self.X_train = None
         self.x_test = None     
         self.num_features = None 
+        self.num_gen_features = None
 
     def __run_dataprep(self):
-        self.dataprep = DataPrep(datafile=self.dataset, categorical_columns=self.categorical_collumns)
-        self.num_features = self.dataprep.total_features
+        self.dataprep = DataPrep(datafile=self.dataset, categorical_columns=self.categorical_collumns, noise_dim=self.numeric_noise_dim)
+        self.dataprep.generate_training_test_data
+        self.noise_dim = self.dataprep.full_noise_dim
         self.X_train, self.x_test = self.dataprep.generate_training_test_data()
+        self.num_features = self.dataprep.total_features
+        self.num_gen_features = self.dataprep.generator_features
     
     def _init_models(self):
-        self.generator = Generator(self.noise_dim,64, self.num_features)
+        self.generator = Generator(self.dataprep.full_noise_dim,64, self.num_gen_features)
         self.discriminator=Discriminator(self.num_features,64)
 
         #criterion = nn.BCEWithLogitsLoss() # NOTE passt sonst nicht mit Sgimoid beim output layer 
@@ -176,18 +185,17 @@ class CTGanTraining():
                     f'Generator Loss: {gen_loss.item():.3f}')
 
     def run_training(self):
-        try: 
-            self.dataprep()
-        except:
-            pass
-        
+        self.__run_dataprep()
+       
+       
+
         self._init_models()
 
-        if self.X_train!= None:
+        if type(self.X_train)!= None:
             for epoch in range(self.epochs):
                 for i in range(0, len(self.X_train), self.batch_size):
                     real_data = torch.FloatTensor(self.X_train[i:i+self.batch_size])
-                    
+
                     # Train Discriminator
                     self.discriminator_optimizer.zero_grad()
 
@@ -197,12 +205,20 @@ class CTGanTraining():
                     real_loss = self.criterion(real_outputs, real_labels)
 
                     # Fake data
-                    noise_tensor = self.dataprep.gen_noise_tensor(noise_dim=self.noise_dim, batch_size=real_data.size(0))
+                    noise_tensor , cat_values = self.dataprep.gen_noise_tensor(batch_size=real_data.size(0))
 
-                    fake_data = self.generator(noise_tensor)
+                    #print(noise_tensor.shape, self.dataprep.full_noise_dim,64, self.num_gen_features)
+                    fake_data = self.generator(noise_tensor.float())
+                    #print("fakiout", fake_data)
+
+                    fake_data = torch.cat(tensors=(torch.from_numpy(cat_values),fake_data), dim=1)
+
+                    #print("dimensioncomp", fake_data.shape, real_data.shape, fake_data.dtype)
                     fake_labels = torch.zeros(real_data.size(0), 1)
-                    fake_outputs = self.discriminator(fake_data.detach())
+                    fake_outputs = self.discriminator(fake_data.float().detach())
                     fake_loss = self.criterion(fake_outputs, fake_labels)
+
+                    #print("here")
 
                     # Backprop and optimize
                     d_loss = real_loss + fake_loss
@@ -212,7 +228,7 @@ class CTGanTraining():
                     # Train Generator
                     self.generator_optimizer.zero_grad()
                     gen_labels = torch.ones(real_data.size(0), 1)  # We want the generator to fool the discriminator
-                    gen_outputs = self.discriminator(fake_data)
+                    gen_outputs = self.discriminator(fake_data.float())
                     gen_loss = self.criterion(gen_outputs, gen_labels)
 
                     # Backprop and optimize
@@ -224,8 +240,9 @@ class CTGanTraining():
 
 if __name__ == "__main__":
     csvfile = os.path.join(os.getcwd(), "penguins_size.csv")
-   # data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
-    #data_prep.gen_noise_tensor(noise_dim=128, batch_size=20)
+    #data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
+    #data_prep.generate_training_test_data()
+    #print(data_prep.gen_noise_tensor(noise_dim=128, batch_size=5))
     ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"])
     ctgan.run_training()
     # TODO Dimensionen für Noise Tensor nochmal kontrollieren
