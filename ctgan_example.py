@@ -177,7 +177,7 @@ class CTGan():
         self.train_gen_score = []
         self.train_disc_score = []
 
-    def __run_dataprep(self):
+    def run_dataprep(self):
         self.dataprep = DataPrep(datafile=self.dataset, categorical_columns=self.categorical_collumns, noise_dim=self.numeric_noise_dim)
         self.dataprep.generate_training_test_data
         self.noise_dim = self.dataprep.full_noise_dim
@@ -185,7 +185,7 @@ class CTGan():
         self.num_features = self.dataprep.total_features
         self.num_gen_features = self.dataprep.generator_features
     
-    def _init_models(self):
+    def init_models(self):
         self.generator = Generator(self.dataprep.full_noise_dim,256, self.num_gen_features)
         self.discriminator=Discriminator(self.num_features,64)
 
@@ -193,6 +193,8 @@ class CTGan():
         self.criterion = nn.BCELoss() 
         self.generator_optimizer = optim.Adam(self.generator.parameters(), lr=self.learning_rate, betas=(0.5, 0.999)) 
         self.discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.001*self.learning_rate, betas=(0.5, 0.999))
+
+        #print("Generator Weights L1 Layer pre training", self.generator.l1.weight.data)
 
     def _show_progress(self, epoch, real_loss, fake_loss, gen_loss):
         if epoch % 10 == 0:
@@ -211,12 +213,7 @@ class CTGan():
         plt.show()
 
 
-    def run_training(self):
-        self.__run_dataprep()
-       
-       
-
-        self._init_models()
+    def run_training(self):     
 
         if self.X_train is not None:
             for epoch in range(self.epochs):
@@ -228,6 +225,7 @@ class CTGan():
 
                     # Real data
                     #real_labels = torch.ones(real_data.size(0), 1)
+                    print("was ist das für eine Größe" ,real_data.size(0))
                     real_labels = torch.ones(real_data.size(0), 1) * 0.9 # Statt 1.0 Labels Smoothing um Mode Collapse zu vermeiden
                     real_outputs = self.discriminator(real_data)
                     real_loss = self.criterion(real_outputs, real_labels)
@@ -274,39 +272,66 @@ class CTGan():
         torch.save(self.generator.state_dict(), filepath)
     
     def load_generatormodel(self, filepath):
-       # .state_dict(), filepath)
-       # loaded_model.load_state_dict(torch.load('simple_net.pth'))
-       # loaded_model.eval()  # Setze in den Evaluierungsmodus, fa
-        pass
+        self.generator.load_state_dict(torch.load(filepath))
+        #NOTE accessing weights of L1 Layer print("Generator Weights L1 Layer after training", self.generator.l1.weight.data)
 
-    def generate(self, n_samples):
+    def generate(self, n_samples, export=False, filename="export.csv"):
         with torch.no_grad():
+             # Fake data
+            #noise_tensor , cat_values = self.dataprep.gen_noise_tensor(batch_size=real_data.size(0))
+                   
+            #fake_data = self.generator(noise_tensor.float())
+            
             # Rauschen und Bedingungen generieren
             noise, cat = self.dataprep.gen_noise_tensor(batch_size=n_samples)
-        
-            print(cat)
+            #print(type(cat), cat.size, type(cat[0][0]))
             # Synthetische Daten erzeugen (Werte zwischen -1 und 1)
-            fake_data_num = self.generator(noise).numpy()
+            fake_data_num = self.generator(noise.float()).numpy()
             
-            print(fake_data_num)
+            #fake_data_raw = np.concat((cat,fake_data_num), axis=1)
+
+            #print(fake_data_raw)
 
             # Rücktransformation in echte Werte
-            # (Nutzt den ColumnTransformer aus deinem DataPrep)
-            final_data = self.dataprep.collumn_trans.named_transformers_['remainder'].inverse_transform(
-                fake_data_raw[:, len(self.dataprep.categorical_columns):] # Beispielhaft für die Scaler-Spalten
-            )
+            oh = self.dataprep.collumn_trans.named_transformers_['cat']
+            scaler = self.dataprep.collumn_trans.named_transformers_['remainder']
+            inverse_cat = oh.inverse_transform(cat)
+            inverse_num = scaler.inverse_transform(fake_data_num)
+
+            #fake_data = np.concat((inverse_cat,inverse_num), axis=1)
+            #df =pd.DataFrame(data=fake_data, columns=self.dataprep.df.columns)
+
+            #print(df.head())
+            #print(self.dataprep.df.head())
+
+            df_cat = pd.DataFrame(data=inverse_cat, columns=self.categorical_collumns)
+            col_list = list(self.dataprep.df.columns)
+            for col in self.categorical_collumns:
+                col_list.remove(col)
+            df_num = pd.DataFrame(data=inverse_num, columns=col_list)
+
+            df =  pd.concat([df_cat, df_num], axis=1)
             
-            # Hier müsstest du noch die One-Hot-Spalten zurückrechnen
-            return pd.DataFrame(fake_data_raw) # Vereinfachter Export
+            if export == True:
+           #     with open(filename, "a") as f:
+           #         f.write("Now the file has more content!")
+                df.to_csv(filename)
+            else:
+                print(df.head())
+
+
 
 if __name__ == "__main__":
     csvfile = os.path.join(os.getcwd(), "penguins_size.csv")
     ctgan = CTGan(dataset=csvfile,categorical_collumns=["species","island","sex"],epochs=5000)
-    ctgan.run_training()
-    ctgan.show_learning_competition()
+    ctgan.run_dataprep()
+    ctgan.init_models()
+    #ctgan.run_training()
+    #ctgan.show_learning_competition()    
     #ctgan.export_generatormodel(filepath="generator.pth")
-    ctgan.generate(1)
-    # TODO Training und Datapreparation entkoppeln (damit man auch mit snapshots der Modelle Daten erzeugen kann)
+    ctgan.load_generatormodel("generator.pth")
+    ctgan.generate(n_samples=256,export=True, filename="penguins_fake.csv")
+    
     # TODO Batch Normalization für Generator einbauen analog Paper
     # TODO Layer Normalization für Discriminator einbauen 
     # TODO welcher Scaler für Preprocessing und welche Aktivierungsfunktion für Generator ?
@@ -318,8 +343,5 @@ if __name__ == "__main__":
     # TODO Trainingsablauf noch einmal mit gan_flowers.ipynb vergleichen
     # TODO Zusammensetzungen der Fake Daten überprüfen
     # TODO CSV Export der generierten Daten implementieren
-    # TODO Export Generator Model nach dem Training
-
-    #data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
-    #data_prep.generate_training_test_data()
-    #print(data_prep.gen_noise_tensor(noise_dim=128, batch_size=5))
+    # DONE Export Generator Model nach dem Training
+    # DONE Training und Datapreparation entkoppeln (damit man auch mit snapshots der Modelle Daten erzeugen kann)
