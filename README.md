@@ -195,7 +195,7 @@ Potential metrics to evaluate synthetic data quality:
 
 The CTGAN model successfully generates synthetic penguin data that closely matches the distribution of real data:
 
-![Synthetic vs Real Penguin Data]([./fake_penguin_data.png](https://github.com/msMarkusSteffen/gan_ctgan_experiments/blob/master/fake_penguin_data.png))
+![Real vs Fake Penguin](fake_penguin_data.png?raw=true)
 
 **Legend:**
 - **Blue dots/circles**: Real Adelie penguins
