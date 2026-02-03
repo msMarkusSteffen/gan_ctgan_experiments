@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import seaborn as sns
+#import seaborn as sns
 import pandas as pd
 import numpy as np
 import os
@@ -19,7 +19,7 @@ class WassersteinMetric(nn.Module):
     def __init__(self):
         super(WassersteinMetric, self).__init__()
 
-    def forwad(self,u_values, v_values, u_weights=None, v_weights=None):
+    def forward(self,u_values, v_values, u_weights=None, v_weights=None):
 
     #def torch_wasserstein_distance(u_values, v_values, u_weights=None, v_weights=None):
         # NOTE Wasserstein Metrik
@@ -65,20 +65,23 @@ class Generator(nn.Module):
     def __init__(self, noise_dim, hidden_dim, output_size):
         super(Generator, self).__init__()
         self.l1 = nn.Linear(in_features=noise_dim, out_features=hidden_dim) 
+        self.bn1 = nn.BatchNorm1d(hidden_dim)
         self.l2 = nn.Linear(in_features=hidden_dim, out_features=2*hidden_dim) 
+        self.bn2 = nn.BatchNorm1d(2*hidden_dim)
         self.l3 = nn.Linear(in_features=2*hidden_dim, out_features=output_size) 
         #self.relu = nn.LeakyReLU() 
-        self.relu = nn.ReLU() 
-        self.sigmoid = nn.Sigmoid()
-        
+        self.relu = nn.ReLU()         
 
     def forward(self, x): 
-        l1_out = self.l1(x) 
-        relu_out = self.relu(l1_out) 
-        l2_out = self.l2(relu_out) 
-        relu2_out = self.relu(l2_out)
-        l3_out = self.l3(relu2_out) 
-        return nn.Sigmoid()(l3_out) # NOTE Features wurden über MinMax Scaler normalisiert [0,1] <-- Sigmoid sorgt dafür das der Output auch zwischen 0 und 1 ist
+        x = self.l1(x) 
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.l2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.l3(x)   
+        x = torch.sigmoid(x)     
+        return x # NOTE Features wurden über MinMax Scaler normalisiert [0,1] <-- Sigmoid sorgt dafür das der Output auch zwischen 0 und 1 ist
     
     def generate_samples(self, n):
         pass
@@ -87,15 +90,17 @@ class Discriminator(nn.Module):
     def __init__(self, input_size, hidden_size, num_classes= 1):
         super(Discriminator, self).__init__() 
         self.l1 = nn.Linear(in_features=input_size, out_features=hidden_size) 
+        self.ln1 = nn.LazyBatchNorm1d(hidden_size)
         self.relu = nn.LeakyReLU()
         self.l2 = nn.Linear(in_features=hidden_size, out_features=num_classes) 
     
     def forward(self, x): 
-        l1_out = self.l1(x) 
-        relu_out = self.relu(l1_out) 
-        l2_out = self.l2(relu_out) 
-        l2_out = torch.sigmoid(l2_out)
-        return l2_out 
+        x = self.l1(x) 
+        x = self.ln1(x)
+        x = self.relu(x) 
+        x = self.l2(x) 
+        x = torch.sigmoid(x)
+        return x
 
 class DataPrep():
     def __init__(self, datafile, categorical_columns, noise_dim, value_filter=["."], ):
@@ -145,10 +150,10 @@ class DataPrep():
         
     def rate_model(self, real_data, generated_data):
         wass_metric = WassersteinMetric()
-        distance = wass_metric.forwad(real_data, generated_data)
+        distance = wass_metric.forward(real_data, generated_data)
         return distance
 
-class CTGanTraining():
+class CTGan():
     def __init__(self, dataset, categorical_collumns, 
                  test_size=0.33,learning_rate = 0.01, 
                  random_state =42, batch_size=265, 
@@ -213,7 +218,7 @@ class CTGanTraining():
 
         self._init_models()
 
-        if type(self.X_train)!= None:
+        if self.X_train is not None:
             for epoch in range(self.epochs):
                 for i in range(0, len(self.X_train), self.batch_size):
                     real_data = torch.FloatTensor(self.X_train[i:i+self.batch_size])
@@ -265,29 +270,26 @@ class CTGanTraining():
         else:
             print("No training data available. Please run data preparation first.")
 
-if __name__ == "__main__":
-    csvfile = os.path.join(os.getcwd(), "penguins_size.csv")
-    #data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
-    #data_prep.generate_training_test_data()
-    #print(data_prep.gen_noise_tensor(noise_dim=128, batch_size=5))
-    ctgan = CTGanTraining(dataset=csvfile,categorical_collumns=["species","island","sex"],epochs=5000)
-    ctgan.run_training()
-    ctgan.show_learning_competition()
- 
-    # TODO Trainingsablauf noch einmal mit gan_flowers.ipynb vergleichen
-    # TODO Zusammensetzungen der Fake Daten überprüfen
-    # TODO eventuell Wasserstein Metrik zur Bewertung des Modells implementieren
-    # TODO CSV Export der generierten Daten implementieren
-    # TODO Export Generator Model nach dem Training
-    """
-     def generate(self, n_samples):
+    def export_generatormodel(self, filepath):
+        torch.save(self.generator.state_dict(), filepath)
+    
+    def load_generatormodel(self, filepath):
+       # .state_dict(), filepath)
+       # loaded_model.load_state_dict(torch.load('simple_net.pth'))
+       # loaded_model.eval()  # Setze in den Evaluierungsmodus, fa
+        pass
+
+    def generate(self, n_samples):
         with torch.no_grad():
             # Rauschen und Bedingungen generieren
-            noise = self.dataprep.gen_noise_tensor(noise_dim=128, batch_size=n_samples)
-            
+            noise, cat = self.dataprep.gen_noise_tensor(batch_size=n_samples)
+        
+            print(cat)
             # Synthetische Daten erzeugen (Werte zwischen -1 und 1)
-            fake_data_raw = self.generator(noise).numpy()
+            fake_data_num = self.generator(noise).numpy()
             
+            print(fake_data_num)
+
             # Rücktransformation in echte Werte
             # (Nutzt den ColumnTransformer aus deinem DataPrep)
             final_data = self.dataprep.collumn_trans.named_transformers_['remainder'].inverse_transform(
@@ -296,5 +298,28 @@ if __name__ == "__main__":
             
             # Hier müsstest du noch die One-Hot-Spalten zurückrechnen
             return pd.DataFrame(fake_data_raw) # Vereinfachter Export
-    """
-    # Test 12
+
+if __name__ == "__main__":
+    csvfile = os.path.join(os.getcwd(), "penguins_size.csv")
+    ctgan = CTGan(dataset=csvfile,categorical_collumns=["species","island","sex"],epochs=5000)
+    ctgan.run_training()
+    ctgan.show_learning_competition()
+    #ctgan.export_generatormodel(filepath="generator.pth")
+    ctgan.generate(1)
+    # TODO Training und Datapreparation entkoppeln (damit man auch mit snapshots der Modelle Daten erzeugen kann)
+    # TODO Batch Normalization für Generator einbauen analog Paper
+    # TODO Layer Normalization für Discriminator einbauen 
+    # TODO welcher Scaler für Preprocessing und welche Aktivierungsfunktion für Generator ?
+    # TODO Paper empfiehlt dringend Outlier vorher zu entfernen .... 
+    # TODO Wasserstein Metrik zur Bewertung des Modells implementieren <-- Empfohlen aber wie ??
+    # TODO Paper empfiehlt Daten mit niedriger Prävaleszens zu entfernen (sehr seltene Pinguin Kombinationen)
+    #      sie können "irgendwie" im Postprocessing wieder hinzugefügt werden laut Paper?? 
+    # NOTE Data Imputation bei diesem Datensatz nicht nötig, aber bei electronic Health record wichtig
+    # TODO Trainingsablauf noch einmal mit gan_flowers.ipynb vergleichen
+    # TODO Zusammensetzungen der Fake Daten überprüfen
+    # TODO CSV Export der generierten Daten implementieren
+    # TODO Export Generator Model nach dem Training
+
+    #data_prep = DataPrep(datafile=csvfile, categorical_columns=["species","island","sex"])
+    #data_prep.generate_training_test_data()
+    #print(data_prep.gen_noise_tensor(noise_dim=128, batch_size=5))
