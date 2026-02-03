@@ -15,11 +15,15 @@ The two networks compete during training, improving both until the generator pro
 ## Project Structure
 
 ```
-├── gan_example.py                 # Basic GAN implementation with Iris dataset
+├── ctgan_example.py              # Main: CTGAN implementation for penguins ⭐
+├── gan_example.py                # Basic GAN implementation with Iris dataset
 ├── gan_flowers.ipynb             # Comprehensive PyTorch tutorial and GAN for Iris flowers
-├── ctgan_example.py              # CTGAN implementation (if available)
 ├── penguin_conditional_prep.py   # Data preparation for conditional GAN with penguins
-├── penguins_size.csv            # Penguin dataset
+├── testplots.ipynb               # Visualization and comparison of synthetic vs real data
+├── penguins_size.csv            # Original penguin dataset
+├── penguins_fake.csv            # Generated synthetic penguin data
+├── penguins_fake_real.CSV       # Combined real and synthetic data for comparison
+├── generator.pth                # Trained generator model weights
 ├── libraries/
 │   └── buildfhir.py             # FHIR-related utilities for health records
 └── Tests/
@@ -49,7 +53,22 @@ pip install torch scikit-learn pandas numpy matplotlib seaborn
 
 ### Running the Examples
 
-#### 1. Basic GAN with Iris Dataset
+#### 1. Main: CTGAN with Penguins Dataset ⭐
+
+```bash
+python ctgan_example.py
+```
+
+**Features:**
+- Loads the Palmer Penguins dataset
+- Implements **Wasserstein Distance Metric** for better distribution comparison
+- Uses **Conditional Table GAN** for mixed tabular data (numerical + categorical features)
+- Generates synthetic penguin data maintaining species characteristics
+- MinMax scaling for normalized feature generation
+- Trains with adversarial loss and distribution matching
+- Outputs: `penguins_fake.csv` and comparison data in `penguins_fake_real.CSV`
+
+#### 2. Basic GAN with Iris Dataset
 
 ```bash
 python gan_example.py
@@ -61,7 +80,7 @@ This script demonstrates:
 - Training loop with adversarial loss (BCE Loss)
 - Monitoring discriminator and generator loss
 
-#### 2. Interactive Tutorial & Iris GAN
+#### 3. Interactive Tutorial & Iris GAN
 
 ```bash
 jupyter notebook gan_flowers.ipynb
@@ -74,7 +93,7 @@ This notebook provides:
 - Linear regression and logistic regression examples
 - Iris GAN implementation with visualization
 
-#### 3. Conditional GAN Preparation with Penguins
+#### 4. Conditional GAN Preparation with Penguins
 
 ```bash
 python penguin_conditional_prep.py
@@ -85,6 +104,14 @@ This script prepares conditional inputs for CTGAN:
 - One-hot encodes categorical features (species, island, sex)
 - Creates probabilistic distributions for conditional sampling
 - Combines categorical conditions with noise vectors
+
+#### 5. Visualization & Analysis
+
+```bash
+jupyter notebook testplots.ipynb
+```
+
+Visualization notebook for comparing synthetic vs. real data distributions
 
 ## Key Concepts
 
@@ -162,9 +189,44 @@ Potential metrics to evaluate synthetic data quality:
 3. **Statistical Properties**: Compare mean, std, correlation matrices
 4. **Discriminator Accuracy**: Can indicate data quality (should approach 50%)
 
-## Next Steps & Future Work
+## Results 🎉
 
-- [ ] Implement CTGAN fully for better tabular data generation
+### Synthetic Penguin Data Quality
+
+The CTGAN model successfully generates synthetic penguin data that closely matches the distribution of real data:
+
+![Synthetic vs Real Penguin Data](./fake_penguin_data.png)
+
+**Legend:**
+- **Blue dots/circles**: Real Adelie penguins
+- **Orange dots/circles**: Real Gentoo penguins  
+- **Green dots/circles**: Real Chinstrap penguins
+- **Crosses (×)**: Synthetic fake data from CTGAN
+
+The scatter plot shows that synthetic data (marked with ×) effectively matches the distribution patterns of real species data across both `culmen_length_mm` (beak length) and `flipper_length_mm` dimensions.
+
+## Project Status ✅
+
+### Completed ✅
+- ✅ Basic GAN implementation with Iris flowers
+- ✅ PyTorch fundamentals and training pipeline
+- ✅ CTGAN implementation for tabular data
+- ✅ Wasserstein Distance metric for distribution comparison
+- ✅ Penguin dataset generation and preprocessing
+- ✅ Synthetic data generation and export
+- ✅ Model serialization (generator.pth)
+- ✅ Visual validation of synthetic data quality
+
+### In Progress 🚀
+- 🔄 Data quality evaluation metrics
+- 🔄 PCA comparison of real vs synthetic distributions
+- 🔄 Fine-tuning hyperparameters for better generation
+
+### Future Work 🔮
+- [ ] Implement FHIR integration for medical records
+- [ ] Scale to larger datasets
+- [ ] Add differential privacy mechanisms
+- [ ] Implement evaluation dashboard
 - [ ] Add support for mixed data types (continuous + categorical)
 - [ ] Extend to medical health records (FHIR format)
 - [ ] Implement Wasserstein GAN (WGAN) for better training stability
