@@ -187,12 +187,12 @@ class CTGan():
     
     def init_models(self):
         self.generator = Generator(self.dataprep.full_noise_dim,256, self.num_gen_features)
-        self.discriminator=Discriminator(self.num_features,64)
+        self.discriminator=Discriminator(self.num_features,256)
 
         #criterion = nn.BCEWithLogitsLoss() # NOTE passt sonst nicht mit Sgimoid beim output layer 
         self.criterion = nn.BCELoss() 
         self.generator_optimizer = optim.Adam(self.generator.parameters(), lr=self.learning_rate, betas=(0.5, 0.999)) 
-        self.discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.001*self.learning_rate, betas=(0.5, 0.999))
+        self.discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.1*self.learning_rate, betas=(0.5, 0.999))
 
         #print("Generator Weights L1 Layer pre training", self.generator.l1.weight.data)
 
@@ -225,7 +225,7 @@ class CTGan():
 
                     # Real data
                     #real_labels = torch.ones(real_data.size(0), 1)
-                    print("was ist das für eine Größe" ,real_data.size(0))
+                    #print("was ist das für eine Größe" ,real_data.size(0))
                     real_labels = torch.ones(real_data.size(0), 1) * 0.9 # Statt 1.0 Labels Smoothing um Mode Collapse zu vermeiden
                     real_outputs = self.discriminator(real_data)
                     real_loss = self.criterion(real_outputs, real_labels)
@@ -275,7 +275,7 @@ class CTGan():
         self.generator.load_state_dict(torch.load(filepath))
         #NOTE accessing weights of L1 Layer print("Generator Weights L1 Layer after training", self.generator.l1.weight.data)
 
-    def generate(self, n_samples, export=False, filename="export.csv"):
+    def generate(self, n_samples, export=False, real_fake_combined=False, filename="export.csv"):
         with torch.no_grad():
              # Fake data
             #noise_tensor , cat_values = self.dataprep.gen_noise_tensor(batch_size=real_data.size(0))
@@ -310,11 +310,18 @@ class CTGan():
                 col_list.remove(col)
             df_num = pd.DataFrame(data=inverse_num, columns=col_list)
 
-            df =  pd.concat([df_cat, df_num], axis=1)
+            df=None
+
+            if real_fake_combined == False:
+                df =  pd.concat([df_cat, df_num], axis=1)
             
-            if export == True:
-           #     with open(filename, "a") as f:
-           #         f.write("Now the file has more content!")
+            else:
+                df_real = self.dataprep.df.sample(n=n_samples, random_state=42).reset_index(drop=True)
+                df_real["source"] = "real"
+                df_fake = pd.concat([df_cat, df_num], axis=1)   
+                df_fake["source"] = "fake"  
+                df = pd.concat([df_real, df_fake], axis=0).reset_index(drop=True)   
+            if export == True:        
                 df.to_csv(filename)
             else:
                 print(df.head())
@@ -330,7 +337,7 @@ if __name__ == "__main__":
     #ctgan.show_learning_competition()    
     #ctgan.export_generatormodel(filepath="generator.pth")
     ctgan.load_generatormodel("generator.pth")
-    ctgan.generate(n_samples=256,export=True, filename="penguins_fake.csv")
+    ctgan.generate(n_samples=256,export=True,real_fake_combined=True, filename="penguins_fake_real.csv")
     
     # TODO Batch Normalization für Generator einbauen analog Paper
     # TODO Layer Normalization für Discriminator einbauen 
