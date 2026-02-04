@@ -195,7 +195,7 @@ Potential metrics to evaluate synthetic data quality:
 
 The CTGAN model successfully generates synthetic penguin data that closely matches the distribution of real data:
 
-![Real vs Fake Penguin](Tests/fake_penguin_data.png)
+![Real vs Fake Penguin](plots/fake_penguin_data.png)
 
 **Legend:**
 - **Blue dots/circles**: Real Adelie penguins
@@ -204,6 +204,11 @@ The CTGAN model successfully generates synthetic penguin data that closely match
 - **Crosses (×)**: Synthetic fake data from CTGAN
 
 The scatter plot shows that synthetic data (marked with ×) effectively matches the distribution patterns of real species data across both `culmen_length_mm` (beak length) and `flipper_length_mm` dimensions.
+
+| Correlation map fake data                        | Correlation map real data
+| ----------------------------------- | ----------------------------------- |
+| ![corr map fake](plots/corr_map_fake.png) | ![Real vs Fake Penguin](plots/corr_map_real.png) |
+
 
 ## Project Status ✅
 
