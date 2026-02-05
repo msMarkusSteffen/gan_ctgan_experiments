@@ -253,7 +253,7 @@ The scatter plot shows that synthetic data (marked with ×) effectively matches 
 
 1. **Phase 1** ✓: Understand GAN fundamentals (Iris dataset)
 2. **Phase 2** ✓ : Implement conditional GANs (Penguin dataset)
-3. **Phase 3** ✓ : Implement conditional GANs (Penguin dataset)
+3. **Phase 3** (in progress) : Try a generating synthetic data for a "real" and coplex dataset 
 3. **Phase 4** (Planned): Generate synthetic medical health records in FHIR format
 
 ---
